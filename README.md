@@ -16,7 +16,7 @@ The controller code packaged here matches the public Autopilot planner and charg
 
 ## Try it (no vehicle, account, API key, or network)
 
-Requires **Linux, Python 3.11+, git**. Independent sandbox/replay also requires unprivileged Linux namespaces, `unshare`, and `cryptography` (no `iproute2` needed since v0.4.3; loopback is brought up over AF_NETLINK). Run the test suite from an interpreter outside `/home`, `/root`, `/mnt`, and `/working_dir`: the sandbox masks those paths, so a venv under `$HOME` fails sandbox tests by design. The local demo itself never touches a charger.
+Requires **Linux, Python 3.11+, git**. Independent sandbox/replay also requires unprivileged Linux namespaces, `unshare`, and `cryptography` (no `iproute2` needed since v0.4.3; loopback is brought up over AF_NETLINK). Run the test suite from an interpreter outside the sandbox-masked paths `/home`, `/root`, `/mnt`, `/working_dir`, `/tmp`, and `/var/tmp`: the sandbox mounts fresh tmpfs over `/tmp` and `/var/tmp` and masks the others, so a venv under `$HOME` or `/tmp` fails sandbox tests by design (the interpreter itself disappears inside the namespace). The simplest working setup is the system interpreter with cryptography installed as a system package, or a venv under `/opt` or a similar unmasked path. Do not rely on `pip install --user` cryptography for `./REPLAY_EXPERIMENTAL.sh`: that script sets `PYTHONNOUSERSITE=1`, which hides user-site packages from the sandbox branch (the portable runner does not set it, so it passes either way). The local demo itself never touches a charger.
 
 ```sh
 python3 -m venv .venv
