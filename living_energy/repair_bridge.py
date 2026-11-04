@@ -143,7 +143,13 @@ except OSError:
 # Enable loopback only inside the new, isolated network namespace. Test fixtures
 # use a local fake HA HTTP server; leaving lo DOWN gives false negatives.
 # This occurs before capabilities are dropped. No external interface exists here.
-subprocess.run(["/usr/sbin/ip", "link", "set", "lo", "up"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+import socket as _sock, struct as _struct
+with _sock.socket(_sock.AF_NETLINK, _sock.SOCK_RAW, 0) as _nls:
+    _nls.bind((0, 0))
+    _ifi = _struct.pack("BBHiII", _sock.AF_UNSPEC, 0, 0, 1, 1, 1)
+    _nlhdr = _struct.pack("IHHII", 16 + len(_ifi), 16, 0x05, 1, 0)
+    _nls.send(_nlhdr + _ifi)
+    _nls.recv(4096)
 
 # 8. Drop all capabilities from bounding, effective, permitted, and inheritable sets
 # so untrusted code cannot call umount2() or mount(MS_REMOUNT) to uncover masked paths.
@@ -177,7 +183,7 @@ class IsolatedRepairSandbox:
     def run_isolated(self, work_dir: Path, cmd: list[str], *, extra_env: dict | None = None,
                      additional_masks: list[Path | str] | None = None, timeout: float = 30.0) -> dict:
         work_dir = Path(work_dir).resolve()
-        stage_base = Path(tempfile.mkdtemp(prefix="ol-ns-stage-", dir="/var/tmp" if os.path.isdir("/var/tmp") else None))
+        stage_base = Path(tempfile.mkdtemp(prefix="ol-ns-stage-", dir="/var/tmp" if os.path.isdir("/var/tmp") else "/tmp"))
         try:
             staged_work = stage_base / "work"
             shutil.copytree(work_dir, staged_work, symlinks=True)
