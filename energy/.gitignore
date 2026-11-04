@@ -1,0 +1,7 @@
+config.json
+ha-token.txt
+private/
+__pycache__/
+*.py[cod]
+.env
+*.local

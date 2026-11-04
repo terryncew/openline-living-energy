@@ -1,0 +1,10 @@
+{
+  "kind": "SIMULATED_LOCAL_CHARGER_NOT_REAL_HOME",
+  "charging_kwh": 6.667,
+  "scheduled_cost_usd": 0.667,
+  "modeled_immediate_cost_usd": 3.333,
+  "modeled_difference_usd": 2.667,
+  "number_of_hardware_commands_simulated": 2,
+  "sessions": 24,
+  "all_required_charge_delivered": true
+}

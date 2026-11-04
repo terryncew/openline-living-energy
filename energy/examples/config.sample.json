@@ -1,0 +1,18 @@
+{
+  "home_assistant_url": "http://homeassistant.local:8123",
+  "charger_switch": "switch.ev_charging_enabled",
+  "plugged_sensor": "binary_sensor.vehicle_plugged",
+  "soc_sensor": "sensor.vehicle_soc",
+  "energy_meter_sensor": "sensor.ev_charger_total_kwh",
+  "price_forecast_entity": "sensor.owner_verified_ev_tariff_forecast",
+  "owner_authorized": false,
+  "battery_kwh": 60,
+  "target_soc_percent": 80,
+  "charge_power_kw": 7.2,
+  "efficiency": 0.9,
+  "minimum_dwell_minutes": 10,
+  "max_actions_per_day": 24,
+  "max_sensor_age_minutes": 15,
+  "departure_local": "07:00",
+  "timezone": "America/Los_Angeles"
+}

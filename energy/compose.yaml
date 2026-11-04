@@ -1,0 +1,13 @@
+services:
+  energy-autopilot:
+    build: .
+    restart: unless-stopped
+    user: "${UID:-1000}:${GID:-1000}"
+    read_only: true
+    volumes:
+      - ./local:/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # No ports, inbound server or cloud account. Local HA URL must be resolvable.

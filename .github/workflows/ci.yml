@@ -1,0 +1,17 @@
+name: Verify Living Energy experimental source
+on:
+  push:
+  pull_request:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq iproute2 util-linux
+      - run: pip install -r requirements.txt
+      - run: bash REPLAY_EXPERIMENTAL.sh
+      - run: bash run_demo.sh
+      - run: python3 -m compileall -q living_energy energy/src src
