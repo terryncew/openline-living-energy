@@ -4,6 +4,16 @@
 
 A Living Project that runs an autonomous EV charging **simulation**, observes interruptions and lost evidence, safely stops and resumes, and can gate proposed source repairs through an isolated test environment and owner-controlled acceptance. It combines OpenLine Energy Autopilot with Living Projects continuity/repair primitives. It does not require a dashboard to stay open.
 
+## The OpenLine Energy family
+
+Three separate repositories, one story. Start where your question is.
+
+- **OpenLine Energy** ([terryncew/openline-energy](https://github.com/terryncew/openline-energy)) is the solar planning tool. An advisory, local-first web app that helps a California household explore plug-in solar options. Open `index.html`, enter one monthly usage number, and see a labeled illustration. It is not a savings quote, not installation advice, and no hosted public site is deployed.
+- **Energy Autopilot** ([terryncew/openline-energy-autopilot](https://github.com/terryncew/openline-energy-autopilot)) is the experimental autonomous EV charging controller. By default it runs against a simulated charger only. Its demo shows a $2.67 modeled cost difference between charging windows. That is a modeled difference, not measured household savings. Physical charger activation is unvalidated, stays disabled unless the owner deliberately authorizes it, and requires a separate safety review.
+- **Living Energy (this repository)** adds a bounded project-improvement and recovery layer on top of the charging controller. It detects failures, refuses to act on damaged receipt history or changed owner authority, gates proposed repairs through receiver-controlled promotion, and preserves accepted work across interruptions and agent replacement. The charging mission here is simulated. No charger is connected and no savings are measured.
+
+The controller code packaged here matches the public Autopilot planner and charger interface, with a hardened controller core for the integrated mission. The three repositories do not modify each other. Nothing in this family operates a physical charger on its own authority.
+
 ## Try it (no vehicle, account, API key, or network)
 
 Requires **Linux, Python 3.11+, git**. Independent sandbox/replay also requires unprivileged Linux namespaces, `unshare`, `iproute2`, and `cryptography`. The local demo itself never touches a charger.
