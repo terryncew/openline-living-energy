@@ -98,41 +98,50 @@ env = cfg["env"]
 # 1. Make mount tree private
 mount("none", "/", None, MS_REC | MS_PRIVATE)
 
-# 2. Preserve work_dir via bind-mount into /dev/shm/.ws_hold before masking /tmp and /var/tmp
+# 2. Preserve work_dir (and optional venv lib) via bind-mount into /dev/shm before masking /tmp and /var/tmp
 os.makedirs("/dev/shm/.ws_hold", exist_ok=True)
 mount(work_dir, "/dev/shm/.ws_hold", None, MS_BIND | MS_REC)
+venv_lib = cfg.get("venv_lib")
+if venv_lib and os.path.isdir(venv_lib):
+    os.makedirs("/dev/shm/.venv_hold", exist_ok=True)
+    mount(venv_lib, "/dev/shm/.venv_hold", None, MS_BIND | MS_REC)
+else:
+    venv_lib = None
 
-# 3. Mount fresh writable tmpfs on /tmp and /var/tmp
+# 3. Mount fresh writable tmpfs on /tmp and /var/tmp (fail-closed)
 mount("tmpfs", "/tmp", "tmpfs", MS_NOSUID | MS_NODEV, "size=67108864,mode=0700")
 if os.path.isdir("/var/tmp"):
-    try:
-        mount("tmpfs", "/var/tmp", "tmpfs", MS_NOSUID | MS_NODEV, "size=16777216,mode=0700")
-    except OSError:
-        pass
+    mount("tmpfs", "/var/tmp", "tmpfs", MS_NOSUID | MS_NODEV, "size=16777216,mode=0700")
 
-# 4. Restore work_dir into the fresh namespace tree and detach /dev/shm/.ws_hold
+# 4. Restore work_dir (and optional read-only venv lib) into the fresh namespace tree and detach holds
 os.makedirs(work_dir, exist_ok=True)
 mount("/dev/shm/.ws_hold", work_dir, None, MS_BIND | MS_REC)
-libc.umount2(b"/dev/shm/.ws_hold", MNT_DETACH)
+if libc.umount2(b"/dev/shm/.ws_hold", MNT_DETACH) != 0:
+    raise OSError(ctypes.get_errno(), "failed_to_detach_ws_hold")
 try:
     os.rmdir("/dev/shm/.ws_hold")
 except OSError:
     pass
-
-# 5. Mask sensitive host directories and hidden oracle paths with empty mode=0000 tmpfs
-for mp in masked_paths:
-    if os.path.isdir(mp) and not work_dir.startswith(mp + "/") and mp != work_dir:
-        try:
-            mount("tmpfs", mp, "tmpfs", MS_RDONLY | MS_NOSUID | MS_NODEV, "size=4096,mode=0000")
-        except OSError:
-            pass
-
-# 6. Remount /dev/shm read-only empty tmpfs so untrusted code cannot stage or read shared memory
-if os.path.isdir("/dev/shm"):
+if venv_lib:
+    os.makedirs("/tmp/.ol_venv_ro_lib", exist_ok=True)
+    mount("/dev/shm/.venv_hold", "/tmp/.ol_venv_ro_lib", None, MS_BIND | MS_REC)
+    # A failed read-only remount must abort before candidate execution.
+    mount("none", "/tmp/.ol_venv_ro_lib", None, MS_REMOUNT | MS_BIND | MS_RDONLY | MS_NOSUID | MS_NODEV)
+    if libc.umount2(b"/dev/shm/.venv_hold", MNT_DETACH) != 0:
+        raise OSError(ctypes.get_errno(), "failed_to_detach_venv_hold")
     try:
-        mount("tmpfs", "/dev/shm", "tmpfs", MS_RDONLY | MS_NOSUID | MS_NODEV, "size=4096,mode=0555")
+        os.rmdir("/dev/shm/.venv_hold")
     except OSError:
         pass
+
+# 5. Mask sensitive host directories and hidden oracle paths with empty mode=0000 tmpfs (fail-closed)
+for mp in masked_paths:
+    if os.path.isdir(mp) and not work_dir.startswith(mp + "/") and mp != work_dir:
+        mount("tmpfs", mp, "tmpfs", MS_RDONLY | MS_NOSUID | MS_NODEV, "size=4096,mode=0000")
+
+# 6. Remount /dev/shm read-only empty tmpfs so untrusted code cannot stage or read shared memory (fail-closed)
+if os.path.isdir("/dev/shm"):
+    mount("tmpfs", "/dev/shm", "tmpfs", MS_RDONLY | MS_NOSUID | MS_NODEV, "size=4096,mode=0555")
 
 # 7. Mount fresh procfs or empty read-only tmpfs over /proc inside PID namespace
 try:
@@ -151,11 +160,14 @@ with _sock.socket(_sock.AF_NETLINK, _sock.SOCK_RAW, 0) as _nls:
     _nls.send(_nlhdr + _ifi)
     _nls.recv(4096)
 
-# 8. Drop all capabilities from bounding, effective, permitted, and inheritable sets
+# 8. Drop all capabilities from bounding, effective, permitted, and inheritable sets (fail-closed)
 # so untrusted code cannot call umount2() or mount(MS_REMOUNT) to uncover masked paths.
 for cap in range(0, 64):
-    libc.prctl(PR_CAPBSET_DROP, ctypes.c_ulong(cap), 0, 0, 0)
-libc.prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
+    rc_drop = libc.prctl(PR_CAPBSET_DROP, ctypes.c_ulong(cap), 0, 0, 0)
+    if rc_drop != 0 and ctypes.get_errno() != errno.EINVAL:
+        raise OSError(ctypes.get_errno(), f"prctl_capbset_drop_failed:{cap}")
+if libc.prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0:
+    raise OSError(ctypes.get_errno(), "prctl_set_no_new_privs_failed")
 
 class CapHeader(ctypes.Structure):
     _fields_ = [("version", ctypes.c_uint32), ("pid", ctypes.c_int)]
@@ -165,7 +177,8 @@ class CapData(ctypes.Structure):
 
 hdr = CapHeader(0x20080522, 0)
 data = (CapData * 2)(CapData(0, 0, 0), CapData(0, 0, 0))
-libc.capset(ctypes.byref(hdr), ctypes.byref(data))
+if libc.capset(ctypes.byref(hdr), ctypes.byref(data)) != 0:
+    raise OSError(ctypes.get_errno(), "capset_drop_failed")
 
 os.chdir(work_dir)
 p = subprocess.run(cmd, cwd=work_dir, env=env, text=True, capture_output=True)
@@ -194,6 +207,15 @@ class IsolatedRepairSandbox:
             ))
             # Never mask the staged_work parent itself
             masks = [m for m in masks if not str(staged_work).startswith(m + "/")]
+            real_py = os.path.realpath(sys.executable)
+            pypath_parts = [str(staged_work), str(staged_work / "src"), str(staged_work / "energy" / "src")]
+            venv_lib = None
+            if sys.prefix != sys.base_prefix:
+                cand_lib = Path(sys.prefix).resolve() / "lib"
+                if cand_lib.is_dir():
+                    venv_lib = str(cand_lib)
+                    py_ver = f"python{sys.version_info.major}.{sys.version_info.minor}"
+                    pypath_parts.append(f"/tmp/.ol_venv_ro_lib/{py_ver}/site-packages")
             clean_env = {
                 "PATH": "/usr/local/bin:/usr/bin:/bin",
                 "HOME": "/tmp",
@@ -201,22 +223,27 @@ class IsolatedRepairSandbox:
                 "PYTHONDONTWRITEBYTECODE": "1",
                 "PYTHONNOUSERSITE": "1",
                 "LANG": "C.UTF-8",
-                "PYTHONPATH": f"{staged_work}:{staged_work / 'src'}:{staged_work / 'energy' / 'src'}",
+                "PYTHONPATH": ":".join(pypath_parts),
             }
             if extra_env:
                 clean_env.update(extra_env)
+            resolved_cmd = [
+                real_py if (idx == 0 and (str(c) == sys.executable or os.path.realpath(str(c)) == real_py)) else str(c)
+                for idx, c in enumerate(cmd)
+            ]
             cfg = {
                 "work_dir": str(staged_work),
                 "scratch_tmp": "/tmp",
                 "masked_paths": masks,
-                "cmd": [str(c) for c in cmd],
+                "venv_lib": venv_lib,
+                "cmd": resolved_cmd,
                 "env": clean_env,
             }
             t0 = time.monotonic()
             proc = subprocess.run(
                 [
                     "unshare", "--user", "--map-root-user", "--mount", "--net", "--pid", "--fork",
-                    sys.executable, "-c", _SANDBOX_WRAPPER_SCRIPT, json.dumps(cfg)
+                    real_py, "-c", _SANDBOX_WRAPPER_SCRIPT, json.dumps(cfg)
                 ],
                 text=True, capture_output=True, timeout=timeout
             )
